@@ -3,7 +3,7 @@
   "token": "*****",
   "target": {
     "type": "groups",
-    "login": "subit",
+    "login": "subit"
   },
-  "limit": 85,
+  "limit": 85
 }
