@@ -6,7 +6,9 @@ use serde::Deserialize;
 use crate::{Context, Doc, DocMeta, RawDocMeta, Repo};
 
 const TOKEN_KEY: &str = "X-Auth-Token";
-const QUERY_LIMIT: (&str, i16) = ("limit", i16::MAX);
+const QUERY_LIMIT: (&str, &str) = ("limit", "100");
+const USER_AGENT_KEY: &str = "User-Agent";
+const USER_AGENT_VALUE: &str = "User-Agent Mozilla/5.0";
 
 #[derive(Deserialize)]
 struct ResponseObj<T> {
@@ -21,6 +23,7 @@ pub async fn repos(cx: Context<'_>) -> Result<Vec<Repo>> {
     cx.h2_client
         .get(url)
         .header(TOKEN_KEY, &cx.config.token)
+        .header(USER_AGENT_KEY, USER_AGENT_VALUE)
         .query(&[QUERY_LIMIT])
         .send()
         .await?
@@ -41,6 +44,7 @@ pub async fn doc(cx: Context<'_>, meta: DocMeta<'_>) -> Result<Doc> {
     cx.h2_client
         .get(url)
         .header(TOKEN_KEY, &cx.config.token)
+        .header(USER_AGENT_KEY, USER_AGENT_VALUE)
         .send()
         .await?
         .json::<ResponseObj<Doc>>()
@@ -57,6 +61,7 @@ pub async fn doc_metas<'repo>(cx: Context<'_>, repo: &'repo Repo) -> Result<Vec<
     cx.h2_client
         .get(url)
         .header(TOKEN_KEY, &cx.config.token)
+        .header(USER_AGENT_KEY, USER_AGENT_VALUE)
         .query(&[QUERY_LIMIT])
         .send()
         .await?
