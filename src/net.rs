@@ -1,4 +1,7 @@
-use std::{rc::Rc, time::Duration};
+use std::{
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -86,5 +89,8 @@ async fn cool(cx: &Context<'_>) {
         cx.limit.set((requests + 1, i));
     } else {
         tokio::time::sleep_until(tokio::time::Instant::from_std(i + Duration::from_secs(1))).await;
+        if cx.limit.get().1 == i {
+            cx.limit.set((1, Instant::now()));
+        }
     }
 }
