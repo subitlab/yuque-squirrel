@@ -8,6 +8,7 @@ use std::{
 
 use anyhow::Result;
 use clap::Parser;
+use regex::Regex;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
@@ -145,13 +146,13 @@ fn main() -> Result<()> {
     let t_now = OffsetDateTime::now_utc();
     let backup_path =
         path.join(t_now.format(&time::format_description::well_known::Iso8601::DATE_TIME)?);
-
-    if !backup_path.try_exists()? {
-        std::fs::create_dir_all(&backup_path)?;
-    }
+    std::fs::create_dir(&backup_path)?;
+    let files_path = backup_path.join("files");
+    std::fs::create_dir(&files_path)?;
 
     let config: Config = serde_json::from_reader(std::fs::File::open(config)?)?;
 
+    let host_url = reqwest::Url::parse(&config.host)?;
     let h2_client = reqwest::Client::new();
     let limit = Cell::new((0usize, Instant::now()));
     let main_meta = RefCell::new(
@@ -167,14 +168,16 @@ fn main() -> Result<()> {
         limit: &limit,
         meta: &main_meta,
     };
-
+    let regex = Regex::new(
+        r"(https:\/\/www\.|http:\/\/www\.|https:\/\/|http:\/\/)?[a-zA-Z0-9]{2,}(\.[a-zA-Z0-9]{2,})(\.[a-zA-Z0-9]{2,})?\/[a-zA-Z0-9]{2,}",
+    )?;
     let mut rt = tokio::runtime::Builder::new_current_thread();
     rt.enable_all();
     let rt = rt.build()?;
 
     rt.block_on(async {
         let repos = net::repos(cx).await?;
-        for chunk in repos.chunks(16) {
+        for chunk in repos.chunks(8) {
             cx.meta
                 .borrow_mut()
                 .books
@@ -182,7 +185,11 @@ fn main() -> Result<()> {
             let _ = futures::future::join_all(chunk.iter().map(|repo| async {
                 let metas = net::doc_metas(cx, repo).await?;
                 let backup_path = &backup_path;
-                for meta_chunk in metas.chunks(16) {
+                let files_path = &files_path;
+                let regex = &regex;
+                let host_url = &host_url;
+
+                for meta_chunk in metas.chunks(8) {
                     let _ = futures::future::join_all(
                         meta_chunk
                             .iter()
@@ -197,7 +204,26 @@ fn main() -> Result<()> {
                                 )
                                 .await?;
                                 file.write_all(&serde_json::to_vec_pretty(&doc)?).await?;
+                                file.flush().await?;
                                 cx.meta.borrow_mut().track_backup(&m);
+
+                                // Match URLs
+                                if let Some(ref body) = doc.body {
+                                    for url in regex
+                                        .find_iter(body)
+                                        .filter_map(|url| reqwest::Url::parse(url.as_str()).ok())
+                                        .filter(|url| url.host() == host_url.host())
+                                    {
+                                        if let Some(name) = url
+                                            .path_segments()
+                                            .and_then(|mut iter| iter.next_back())
+                                        {
+                                            let path = files_path.join(name);
+                                            net::resource(cx, url, &path).await?;
+                                        }
+                                    }
+                                }
+
                                 Result::<_, anyhow::Error>::Ok(())
                             }),
                     )

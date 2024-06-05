@@ -1,10 +1,13 @@
 use std::{
+    path::Path,
     rc::Rc,
     time::{Duration, Instant},
 };
 
 use anyhow::Result;
+use futures::{StreamExt, TryStreamExt};
 use serde::Deserialize;
+use tokio::io::AsyncWriteExt;
 
 use crate::{Context, Doc, DocMeta, RawDocMeta, Repo};
 
@@ -80,6 +83,23 @@ pub async fn doc_metas<'repo>(cx: Context<'_>, repo: &'repo Repo) -> Result<Vec<
                 .collect()
         })
         .map_err(Into::into)
+}
+
+pub async fn resource(cx: Context<'_>, url: reqwest::Url, path: &Path) -> Result<()> {
+    let mut stream = cx
+        .h2_client
+        .get(url)
+        .header(TOKEN_KEY, &cx.config.token)
+        .header(USER_AGENT_KEY, USER_AGENT_VALUE)
+        .send()
+        .await?
+        .bytes_stream();
+    let mut file = tokio::fs::File::create_new(path).await?;
+    while let Some(mut chunk) = stream.try_next().await? {
+        file.write_all_buf(&mut chunk).await?;
+    }
+    file.flush().await?;
+    Ok(())
 }
 
 #[inline]
